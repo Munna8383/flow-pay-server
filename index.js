@@ -6,7 +6,10 @@ const bcrypt = require("bcryptjs")
 const jwt = require("jsonwebtoken")
 const port = process.env.PORT || 5000
 
-app.use(cors())
+app.use(cors({
+    origin:["https://flowpay123.netlify.app"],
+    credentials:true
+  }))
 app.use(express.json())
 
 
@@ -33,6 +36,31 @@ async function run() {
 
     const userCollection = client.db("flow-payDB").collection("user")
     const transactionCollection = client.db("flow-payDB").collection("transaction")
+
+
+    // middleware
+
+
+    const verifyToken =(req,res,next)=>{
+
+        if(!req.headers.authorization){
+          return res.status(401).send({message:"forbidden access"})
+        }
+  
+        const token = req.headers.authorization.split(" ")[1]
+  
+        jwt.verify(token,process.env.ACCESS_TOKEN_SECRET,(err,decoded)=>{
+  
+          if(err){
+            return res.status(401).send({message:"forbidden access"})
+          }
+  
+          req.decoded = decoded
+  
+          next()
+  
+        })
+    }
 
 
     // jwt related api
@@ -97,7 +125,7 @@ async function run() {
     
         const storedData = findingUser || findingUser2;
     
-        console.log(storedData);
+      
     
         if (storedData) {
             const pin = data.pin; // Extract pin from request body
@@ -136,7 +164,7 @@ async function run() {
 
     // get all user list
 
-    app.get("/users",async(req,res)=>{
+    app.get("/users",verifyToken,async(req,res)=>{
 
         const result = await userCollection.find().toArray()
 
@@ -172,7 +200,7 @@ async function run() {
     })
     // accept User
 
-    app.put("/acceptUser",async(req,res)=>{
+    app.put("/acceptUser",verifyToken,async(req,res)=>{
 
         const email=req.query.user
 
@@ -256,7 +284,7 @@ async function run() {
 
     // get all transaction list for admin
 
-    app.get("/transactionList",async(req,res)=>{
+    app.get("/transactionList",verifyToken,async(req,res)=>{
 
         const result = await transactionCollection.find().toArray()
 
@@ -266,7 +294,7 @@ async function run() {
 
     // get transaction list of user
 
-    app.get("/transaction/:email",async(req,res)=>{
+    app.get("/transaction/:email",verifyToken,async(req,res)=>{
 
         const email = req.params.email
 
@@ -282,7 +310,7 @@ async function run() {
 
     // get all transaction for agent 
 
-    app.get("/transactionAgent",async(req,res)=>{
+    app.get("/transactionAgent",verifyToken,async(req,res)=>{
 
         const mobile = req.query.mobile
 
@@ -388,7 +416,7 @@ async function run() {
 
     // money request that can seen by agent
 
-    app.get("/moneyRequestAgent",async(req,res)=>{
+    app.get("/moneyRequestAgent",verifyToken,async(req,res)=>{
         
         mobile = req.query.mobile
 
@@ -535,7 +563,7 @@ async function run() {
     // Connect the client to the server	(optional starting in v4.7)
     // await client.connect();
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
+    // await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
     // Ensures that the client will close when you finish/error
