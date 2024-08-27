@@ -1,7 +1,9 @@
 const express = require("express")
 const cors = require("cors")
 const app= express()
+require("dotenv").config()
 const bcrypt = require("bcryptjs")
+const jwt = require("jsonwebtoken")
 const port = process.env.PORT || 5000
 
 app.use(cors())
@@ -10,7 +12,10 @@ app.use(express.json())
 
 
 
-const { MongoClient, ServerApiVersion } = require('mongodb');
+
+
+
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const uri = "mongodb+srv://flowPay12:Munna8399@cluster0.akl91ab.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
@@ -28,6 +33,18 @@ async function run() {
 
     const userCollection = client.db("flow-payDB").collection("user")
     const transactionCollection = client.db("flow-payDB").collection("transaction")
+
+
+    // jwt related api
+
+    app.post("/jwt",async(req,res)=>{
+      
+      const user = req.body
+
+      const token = jwt.sign(user,process.env.ACCESS_TOKEN_SECRET,{expiresIn:"1h"})
+
+      res.send({token})
+    })
 
 //  add user in the database
 
@@ -189,7 +206,12 @@ async function run() {
 
         const user = await userCollection.findOne(query)
 
-        if(parseInt(data.amount)<parseInt(user.balance)){
+        bcrypt.compare(data.pin,user.pin,async function (err, response) {
+            if (err) {
+                res.send({ message: "error" });
+            } else if (response) {
+
+                   if(parseInt(data.amount)<parseInt(user.balance)){
 
             const updatedDoc = {
                 $set:{
@@ -210,7 +232,8 @@ async function run() {
                     amount: data.amount,
                     date: data.date,
                     status:"complete",
-                    role: data.role
+                    role: data.role,
+                    type:"send money"
                 }
 
 
@@ -220,14 +243,280 @@ async function run() {
                 res.send(insertedResult)
             }
 
+            
+        }
+               
+            } else {
+                res.send({ message: "pin mismatch" });
+            }
+        }) 
+
+    })
+
+
+    // get all transaction list for admin
+
+    app.get("/transactionList",async(req,res)=>{
+
+        const result = await transactionCollection.find().toArray()
+
+        res.send(result)
+    })
+
+
+    // get transaction list of user
+
+    app.get("/transaction/:email",async(req,res)=>{
+
+        const email = req.params.email
+
+        const query = {sender:email}
+
+        const result = await transactionCollection.find(query).toArray()
+
+        res.send(result)
+
+    })
+
+
+
+    // get all transaction for agent 
+
+    app.get("/transactionAgent",async(req,res)=>{
+
+        const mobile = req.query.mobile
+
+        const query = {receiver:mobile}
+
+        const result = await transactionCollection.find(query).toArray()
+
+        res.send(result)
+
+    })
+
+
+
+    
+
+
+
+
+    // Cash In By User
+
+    app.post("/cashIn",async(req,res)=>{
+
+        const data = req.body
+
+        const query = {email:data.email}
+
+        const user = await userCollection.findOne(query)
+
+
+        bcrypt.compare(data.pin,user.pin,async function (err, response) {
+            if (err) {
+                res.send({ message: "error" });
+            } else if (response) {
+
+                const transaction = {
+                    sender: data.email,
+                    senderMobile : data.mobile,
+                    receiver: data.agentNumber,
+                    amount: parseInt(data.amount),
+                    date: data.date,
+                    status:"pending",
+                    role: data.role,
+                    type:"CashIn"
+                }
+
+
+                const result= await transactionCollection.insertOne(transaction)
+
+                res.send(result)
+               
+            } else {
+                res.send({ message: "pin mismatch" });
+            }
+        }) 
+
+
+    })
+
+    // cash out by user
+
+    app.post("/cashOut",async(req,res)=>{
+
+        const data = req.body
+
+        const query = {email:data.email}
+
+        const user = await userCollection.findOne(query)
+
+
+        bcrypt.compare(data.pin,user.pin,async function (err, response) {
+            if (err) {
+                res.send({ message: "error" });
+            } else if (response) {
+
+                const transaction = {
+                    sender: data.email,
+                    senderMobile : data.mobile,
+                    receiver: data.agentNumber,
+                    amount: parseInt(data.amount),
+                    date: data.date,
+                    status:"pending",
+                    role: data.role,
+                    type:"CashOut"
+                }
+
+
+                const result= await transactionCollection.insertOne(transaction)
+
+                res.send(result)
+               
+            } else {
+                res.send({ message: "pin mismatch" });
+            }
+        }) 
+
+
+    })
+
+
+
+
+
+
+    // money request that can seen by agent
+
+    app.get("/moneyRequestAgent",async(req,res)=>{
+        
+        mobile = req.query.mobile
+
+        const query = {
+            $and: [
+              { receiver: mobile },
+              { status: "pending" }
+            ]
+          }
+
+          const result = await transactionCollection.find(query).toArray()
+
+          res.send(result)
+    })
+
+
+    // accept cash In or Cash out request by the agent
+
+    app.put("/acceptRequest",async(req,res)=>{
+        const type = req.query.type
+        const amount = parseInt(req.query.amount)
+        const receiver = req.query.receiver
+        const senderMobile = req.query.senderMobile
+        const id = req.query.id
+
+
+
+
+
+        if(type==="CashOut"){
+
+            
+            const query1 = {mobile:senderMobile}
+            const query2 = {mobile:receiver}
+            const query3 = {_id:new ObjectId(id)}
+
+
+            const user1 = await userCollection.findOne(query1)
+            const user2 = await userCollection.findOne(query2)
+
+
+            const charge =  (1.5 / 100) * amount;
+
+
+
+            updateDoc1 ={
+                $set:{
+                    balance: parseInt((user1.balance-amount)-parseInt(charge))
+                }
+            }
+            updateDoc2 ={
+                $set:{
+                    balance: parseInt(user2.balance+amount+charge)
+                }
+            }
+
+            updateDoc3 = {
+                $set:{
+                    status:"completed"
+                }
+            }
+
+
+
+
+            const result1 = await userCollection.updateOne(query1,updateDoc1)
+            const result2 = await userCollection.updateOne(query2,updateDoc2)
+            const result3 = await transactionCollection.updateOne(query3,updateDoc3)
+
+            if(result1,result2,result3){
+
+                res.send({message:"success"})
+            }
+
 
 
 
             
-        }else{
-            res.send({message:"transaction Failed"})
+            
+        }
+        
+
+
+
+
+        if(type==="CashIn"){
+
+            const query1 = {mobile:senderMobile}
+            const query2 = {mobile:receiver}
+            const query3 = {_id:new ObjectId(id)}
+
+
+            const user1 = await userCollection.findOne(query1)
+            const user2 = await userCollection.findOne(query2)
+
+
+
+            updateDoc1 ={
+                $set:{
+                    balance: parseInt(user1.balance+amount)
+                }
+            }
+            updateDoc2 ={
+                $set:{
+                    balance: parseInt(user2.balance-amount)
+                }
+            }
+
+            updateDoc3 = {
+                $set:{
+                    status:"completed"
+                }
+            }
+
+            const result1 = await userCollection.updateOne(query1,updateDoc1)
+            const result2 = await userCollection.updateOne(query2,updateDoc2)
+            const result3 = await transactionCollection.updateOne(query3,updateDoc3)
+
+            if(result1,result2,result3){
+
+                res.send({message:"success"})
+            }
+
+
+
         }
 
+      
     })
 
 
